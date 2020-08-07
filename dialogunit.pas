@@ -5,56 +5,60 @@ unit dialogunit;
 interface
 
 uses
-  Exec, Utility, AmigaDos, FileListUnit,
+  Utility, AmigaDos, FileListUnit, Intuition,
   Types, Classes, SysUtils, Video, Keyboard, Mouse, Math, EventUnit;
 
 const
-  NumVERSION = '0.5';
-  VERSION = '$VER: MCAmiga 0.5 (21.05.2020)';
+  NumVERSION = '0.9';
+  VERSION = '$VER: MCAmiga 0.9 (06.08.2020)';
 
 type
                 //yes     no,    yes to All    No to all      Abort   None
-  TDialogResult=(mrOK, mrCancel, mrAll,         mrNoAll,    mrAbort, mrNone);
+  TDialogResult=(mrOK, mrCancel, mrAll,         mrNoAll,    mrAbort, mrView, mrEdit, mrAgain, mrNone);
 
   { TBaseDialog }
 
   TBaseDialog = class
   protected
-    Mid: TPoint;
-    WindowRect: TRect;
-    InnerRect: TRect;
-    procedure ProcessMouse(MouseEvent: TMouseEvent); virtual;
+    Mid: TPoint;  // middle Point of the screen
+    WindowRect: TRect; // Outer rectangle of the dialog
+    InnerRect: TRect;  // inner rectangle of the dialog
+    procedure ProcessMouse(MouseEvent: TMouseEvent); virtual; // process mouse event
   protected
-    function PollNextKey: TKeyEvent; virtual;
-    procedure DrawButtons; virtual; abstract;
-    procedure DrawWindowBorder; virtual;
-    procedure Paint; virtual; // Draw the window
+    function PollNextKey: TKeyEvent; virtual; // get next Key event or 0 if no key is pressed
+    procedure DrawButtons; virtual; abstract; // Draw buttons if buttons avail
+    procedure DrawWindowBorder; virtual;      // Draw the border of the dialog, set Windowrect first
+    procedure Paint; virtual;                 // Draw the dialog
   public
-    function Execute: TDialogResult; virtual; abstract; // returns the number of the Button pressed
+    function Execute: TDialogResult; virtual; abstract; // Start dialog and return the number of the Button pressed
   end;
 
   { TShowMessage }
-
+  // a stndard message to the user with an OK Button, als used as base class for
+  // all other messages with a text and some buttons
   TShowMessage = class(TBaseDialog)
   protected
-    SelectedButton: Integer;
-    ButtonsArray: array of record
-      Rect: TRect;
-      Pressed: Boolean;
-      Title: string;
-      Result: TDialogResult;
+    WithScroll: Boolean;           // has a scroll bar
+    TopLine: LongInt;              // top visible line of the text
+    SelectedButton: Integer;       // currently selected button, Index in ButtonsArray
+    ButtonsArray: array of record  // all Buttons of the Dialog, use Configure Buttons to set
+      Rect: TRect;                   // ractangle of the button
+      Pressed: Boolean;              // after GetNextKeyEvent, check if this button was pressed during the event
+      Title: string;                 // text of the Button
+      Result: TDialogResult;         // Result of to be set for Execute when Button is pressed
     end;
-    procedure DrawButtons; override;
-    procedure ConfigureButtons; virtual;
-    procedure Paint; override; // Draw the window
-    procedure ProcessMouse(MouseEvent: TMouseEvent); override; // click to ok
+    procedure DrawButtons; override;     // redraw all Buttons (w.g. when changed focus)
+    procedure ConfigureButtons; virtual; // set properties of all Buttons
+    procedure Paint; override;           // Draw the window
+    procedure ProcessMouse(MouseEvent: TMouseEvent); override; // check if the mouse clicked on something
   public
     Text: string; // set before Execute!
     function Execute: TDialogResult; override; // returns the number of the Button pressed
   end;
 
   { TNonWaitMessage }
-
+  // standard text message without a button, which closes itself after the
+  // action is done, for example, start en external program with blocking
   TNonWaitMessage = class(TShowMessage)
   protected
     procedure DrawButtons; override;
@@ -63,21 +67,21 @@ type
   end;
 
   { TAskQuestion }
-
+  // Dialog asking a Yes/No Question
   TAskQuestion = class(TShowMessage)
   protected
     procedure ConfigureButtons; override;
   end;
 
   { TAskMultipleQuestion }
-
+  // Dialog Asking an Yes/Yes To All/No/No to All/Cancel question (overwrite file)
   TAskMultipleQuestion = class(TAskQuestion)
   protected
     procedure ConfigureButtons; override;
   end;
 
   { TAskForName }
-
+  // ask for a text input
   TAskForName = class(TAskQuestion)
   private
      TxtL, TxtR: LongInt;
@@ -94,7 +98,7 @@ type
   end;
 
   { TAskForNumber }
-
+  // ASk for a number (e.g. jump to line)
   TAskForNumber = class(TAskForName)
   protected
     function IsValidChar(c: Char): Boolean; override;
@@ -104,12 +108,19 @@ type
   end;
 
   { TSingleProgress }
-
+  // Progress bar with one text + progressbar and a cancel button
+  // usual way to use
+  // .Create
+  // Set .MaxValue
+  // Set .Text
+  // .Execute
+  // in the loop .UpdateValue
+  // .Free
   TSingleProgress = class(TBaseDialog)
   protected
-    LastCall: LongWord;
+    LastCall: LongWord;  // when it was last called, prevents too frequent redraws
     CurValue: LongWord;
-    Pup: LongInt;
+    Pup: LongInt;        // Postion saves to find the position of text and progressbar
     PGL: LongInt;
     PGR: LongInt;
     CancelPressed: Boolean;
@@ -117,75 +128,91 @@ type
     procedure DrawButtons; override;
     procedure ProcessMouse(MouseEvent: TMouseEvent); override; // click to ok
   public
-    MaxValue: LongWord;
-    Text: string;
+    MaxValue: LongWord;  // must be set before call Execute, last Value of the Progressbar
+    Text: string;        // initial Text above the progress bar
     procedure Paint; override;
-    function Execute: TDialogResult; override;
-    function UpdateValue(AValue: LongWord; NText: string = ''): Boolean; virtual;
+    function Execute: TDialogResult; override; // Init and start progressbar
+    function UpdateValue(AValue: LongWord; NText: string = ''): Boolean; virtual; // Update Progress value and text, if Text Empty, do not change the current text
   end;
 
   { TDoubleProgress }
-
+  // progressbar with a text a progress bar a text another progressbar and a cancel button
   TDoubleProgress = class(TSingleProgress)
   protected
     CurValue2: LongWord;
   public
-    MaxValue2: LongWord;
+    MaxValue2: LongWord; // set before execute, Indicies 2 means the lower progress bar, the inherited without index are the upper progressbar and text
     Text2: string;
-    function Execute: TDialogResult; override;
+    function Execute: TDialogResult; override; // Start and init the progressbars
     procedure Paint; override;
-    function UpdateValue(AValue: LongWord; NText: string = ''): Boolean; override;
-    function UpdateValue2(AValue1: LongWord; NText1: string = ''; AValue2: LongWord = 0; NText2: string = ''): Boolean;
+    function UpdateValue(AValue: LongWord; NText: string = ''): Boolean; override; // only update the upper bar
+    function UpdateValue2(AValue1: LongWord; NText1: string = ''; AValue2: LongWord = 0; NText2: string = ''): Boolean; // update both bars
   end;
 
   { TToolsMenu }
 
-  TToolsEvent = procedure of object;
+  TToolsEvent = procedure of object; // event when a tools entry is selected
 
+  // the tools menu
   TToolsMenu = class(TBaseDialog)
   private
-    Finished: Boolean;
-    CurrentEntry: LongInt;
-    Tools: array of record
-      AName: string;
-      Event: TToolsEvent;
+    Finished: Boolean;      // true -> close the tools menu
+    CurrentEntry: LongInt;  // currently selected entry
+    Tools: array of record  // list of Tools in the menu (max 10 until now)
+      AName: string;        // Text for the entry
+      Event: TToolsEvent;   // event to be called when menu entry is selected
     end;
-    MaxLen: Integer;
-    procedure AddToolsEntry(Name: string; Event: TToolsEvent);
+    MaxLen: Integer;        // Max length of text of all Tool Entries, for easier drawing and dialog size determination
+    procedure AddToolsEntry(Name: string; Event: TToolsEvent); // add a new tool to the menu
     // events
-    procedure LhaPackEvent;
-    procedure LzxPackEvent;
-    procedure ShellEvent;
-    procedure StartProgEvent;
+    procedure LhaPackEvent;    // pack selected files as lha to dest
+    procedure LzxPackEvent;    // pack selected files as lzx to dest
+    procedure ShellEvent;      // Open a new shell
+    procedure StartProgEvent;  // start a program with the current file as argument
+    procedure UnpackArchive;   // Unpack current archive to dest
+    procedure SearchStart;     // open the search requester
+    procedure SelectInfo;
+    procedure DiffViewer;
   protected
     procedure ProcessMouse(MouseEvent: TMouseEvent); override;
     procedure DrawButtons; override;
     procedure Paint; override;
   public
-    DestP, SrcP: TFileList;
+    DestP, SrcP: TFileList; // Links to both FilePanels, set before Execute
     constructor Create; virtual;
-    function Execute: TDialogResult; override;
+    function Execute: TDialogResult; override; // Start the tools menu
   end;
 
+// Shortcuts for easy use of the dialogs
 
+// ask a Yes/No Question
+function AskQuestion(AText: string): Boolean; // yes = true, no = False;
 
-
-function AskQuestion(AText: string): Boolean; // yes = true
+// ask a Yes/YesToAll/No/NoToAll/Cancel Question, (e.g. overwrite message)
 function AskMultipleQuestion(AText: string): TDialogResult;
+
+// ask for a name, useasName = True Limit input chars to valid file/dir names
 function AskForName(AText: string; var ANewName: string; UseAsName: Boolean = True): Boolean;
+
+// ask for a integer number (e.g go to line)
 function AskForNumber(AText: string; var ANewNumber: Integer): Boolean;
+
+// ask for a hexadeciaml number (0..9,A..F)
 function AskForHexNumber(AText: string; var HexString: string): Boolean;
 
+// Show help Text
 procedure ShowHelp;
+// Show Viewer Help TExt
 procedure ShowViewHelp;
+// Simple message
 procedure ShowMessage(AText: string);
+// message without button, returns directly, for blocking actions (e.g. starting external program)
 procedure NonWaitMessage(AText: string);
 
+// Show tools menu
 procedure ShowTools(SrcPanel, DestPanel: TFileList);
 
-
-implementation
-
+// constants for dialog borders and contents drawing
 const
   URCorner = #191;
   LLCorner = #192;
@@ -201,8 +228,19 @@ const
   //ProgressHalf = #221;
   ProgressFull = #219;
 
+  ArrowUp = #24;
+  ArrowDown = #25;
 
 
+var
+  DefaultShell: string = ''; // default shell variable (e.g. CON:0/0/100/200/CLOSE) set by ToolType
+
+implementation
+
+uses
+  ArchiveUnit, searchunit, ToolsUnit, diffviewerunit;
+
+// Help text for the main application! MaxLength 70
 const       //.........1.........2.........3.........4.........5........6.........7.........8
   HelpText = '     MyCommander Amiga Version ' + NumVERSION + ' '+{$INCLUDE %FPCTARGETCPU%} + '-' + {$INCLUDE %FPCTARGETOS%} +'  '#13#10 +
              '   =================================================  '#13#10 +
@@ -218,17 +256,23 @@ const       //.........1.........2.........3.........4.........5........6.......
              ' Ctrl + R - Rescan Directory'#13#10 +
              ' Ctrl + O - Set Destination Directory to Source Directory'#13#10 +
              ' Ctrl + S - type to find entry in current directory'#13#10 +
-             '';
+             ' Ctrl + F - Toggle bottom menu'#13#10 +
+             ' Cursor Keys,4,6,8,2                   - navigate'#13#10  +
+             ' Ctrl Cursor Up,Down,Pg Up,9,Pg Down,3 - fast navigation'#13#10 +
+             ' Ctrl Cursor Left,Right,Home,7,End,1   - Jump to start/end'#13#10;
 
-  const       //.........1.........2.........3.........4.........5........6.........7
-  HelpViewText = '       Editor Help       '#13#10 +
-                 ' F1  - Help                        F3/F10/ESC - Leave Viewer'#13#10 +
-                 ' F4  - Toggle ASCII and Hex View '#13#10 +
-                 ' F5  - Jump to line or address'#13#10 +
-                 ' F7  - Search                      Shift F7 - Search again'#13#10 +
-                 ' Cursor Keys(4,6,8,2) Pg Up(9), Pg Down(3),'#13#10 +
-                 '    Home(7), End(1) - navigate in Text'#13#10 +
-                 ' '#13#10 + '';
+// Help Text for the Viewer
+const           //.........1.........2.........3.........4.........5........6.........7
+  HelpViewText = ' ---- Viewer Help -----  '#13#10 +
+                 ' F1         - Help     '#13#10 +
+                 ' F3/F10/ESC - Leave Viewer'#13#10 +
+                 ' F4         - Toggle ASCII and Hex View '#13#10 +
+                 ' F5         - Jump to line or address'#13#10 +
+                 ' F7         - Search'#13#10 +
+                 ' Shift F7   - Search again'#13#10 +
+                 ' Cursor Keys,4,6,8,2                   - navigate in Text/Hex'#13#10  +
+                 ' Ctrl Cursor Up,Down,Pg Up,9,Pg Down,3 - fast navigation'#13#10 +
+                 ' Ctrl Cursor Left,Right,Home,7,End,1   - Jump to start/end'#13#10;
 
 procedure ShowHelp;
 begin
@@ -376,7 +420,9 @@ begin
     s := ExtractFilePath(s);
   end;
   SetCurrentDir(s);
-  SystemTags('c:run newcli', [NP_CLI, AsTag(True), TAG_END]);
+  if FullScreen then
+    WBenchToFront;
+  SystemTags(PChar('c:run >NIL: newcli ' + DefaultShell), [NP_CLI, AsTag(True), TAG_END]);
 end;
 
 procedure TToolsMenu.StartProgEvent;
@@ -388,7 +434,124 @@ begin
   begin
     NonWaitMessage('Start ' + ExtractFileName(ProgLine));
     s := IncludeTrailingPathDelimiter(SrcP.CurrentPath) + SrcP.ActiveEntry.Name;
-    SystemTags(PChar(Progline + ' ' + s), [TAG_END]);
+    if FullScreen then
+      WBenchToFront;
+    SystemTags(PChar(Progline + ' "' + s + '"'), [TAG_END]);
+    if FullScreen then
+      ScreenToFront(VideoWindow^.WScreen);
+  end;
+end;
+
+procedure TToolsMenu.UnpackArchive;
+var
+  Arc: TArchiveBase;
+  ArcClass: TArchiveClass;
+  s: string;
+  PG: TSingleProgress;
+  AllCount: Integer;
+
+  procedure UnpackFiles(ArchiveDir: TArchiveDir; Base: string);
+  var
+    i: LongInt;
+    AE: TArchiveEntry;
+  begin
+    for i := 0 to ArchiveDir.Entries.Count - 1 do
+    begin
+      AE := ArchiveDir.Entries[i];
+      if AE is TArchiveDir then
+        UnpackFiles(TArchiveDir(AE), IncludeTrailingPathDelimiter(Base + AE.Name))
+      else
+      if AE is TArchiveFile then
+      begin
+        AllCount := AllCount + 1;
+        if not PG.UpdateValue(AllCount, 'Extract ' + AE.Name) then
+          raise Exception.Create('Stopped by user');
+        Arc.ExtractFile(Base + AE.Name, IncludeTrailingPathDelimiter(DestP.CurrentPath) + Base + AE.Name);
+      end;
+    end;
+  end;
+
+  function CountFiles(ArchiveDir: TArchiveDir): LongInt;
+  var
+    i: LongInt;
+    AE: TArchiveEntry;
+  begin
+    Result := 0;
+    for i := 0 to ArchiveDir.Entries.Count - 1 do
+    begin
+      AE := ArchiveDir.Entries[i];
+      if AE is TArchiveDir then
+        Result := Result + CountFiles(TArchiveDir(AE))
+      else
+      if AE is TArchiveFile then
+        Result := Result + 1;
+    end;
+  end;
+
+begin
+  if DestP.InArchive then
+  begin
+    ShowMessage('Unpack archive to archive not supported');
+    Exit;
+  end;
+  s := IncludeTrailingPathDelimiter(SrcP.CurrentPath) + SrcP.ActiveEntry.Name;
+  Arc := nil;
+  ArcClass := GetArchiver(s);
+  if Assigned(ArcClass) then
+  begin
+    try
+      Arc := ArcClass.Create;
+      if not Arc.ReadArchive(s) then
+      begin
+        ShowMessage('Error read archive');
+        Exit;
+      end;
+      PG := TSingleProgress.Create;
+      //Count Files
+      PG.MaxValue := CountFiles(Arc.AD);
+      PG.Text := 'Extract Files';
+      PG.Execute;
+      AllCount := 0;
+      //
+      try
+        UnpackFiles(Arc.AD, '');
+      except
+        on E:Exception do
+          ShowMessage(E.Message);
+      end;
+    finally
+      DestP.Update(True);
+      Arc.Free;
+    end;
+  end
+  else
+  begin
+    ShowMessage('No matching unpacker found.')
+  end;
+end;
+
+procedure TToolsMenu.SearchStart;
+begin
+  StartSearch(SrcP);
+end;
+
+procedure TToolsMenu.SelectInfo;
+begin
+  SrcP.SelectInfoFiles;
+end;
+
+procedure TToolsMenu.DiffViewer;
+var
+  Diff: TDiffViewer;
+  s1, s2: string;
+begin
+  Diff := TDiffViewer.Create;
+  try
+    s1 := IncludeTrailingPathDelimiter(SrcP.CurrentPath) + SrcP.ActiveEntry.Name;
+    s2 := IncludeTrailingPathDelimiter(DestP.CurrentPath) + DestP.ActiveEntry.Name;
+    Diff.Execute(s1, s2);
+  finally
+    Diff.Free;
   end;
 end;
 
@@ -398,7 +561,7 @@ var
 begin
   if (MouseEvent.Action = MouseActionDown) and (MouseEvent.buttons = MouseLeftButton) then
   begin
-    NEntry := EnsureRange((MouseEvent.Y - InnerRect.Top) div 2, 0, High(Tools));
+    NEntry := EnsureRange(MouseEvent.Y - InnerRect.Top, 0, High(Tools));
     if NEntry = CurrentEntry then
     begin
       Tools[CurrentEntry].Event();
@@ -419,16 +582,17 @@ procedure TToolsMenu.Paint;
 var
   i: Integer;
   s: string;
+  AbsLen: LongInt;
 begin
   BGPen := Cyan;
   FGPen := White;
 
   inherited;
-
-  WindowRect.Left := Max(2, mid.x - Max(20, MaxLen + 1));
-  WindowRect.Top := Max(2, mid.y - Length(Tools) div 2 - 2);
-  WindowRect.Bottom := Min(ScreenHeight - 3, mid.y +  Length(Tools) div 2 + 2);
-  WindowRect.Right :=  Min(ScreenWidth - 3, mid.x + Max(20, MaxLen + 1));
+  AbsLen := MaxLen + 5 + 2;
+  WindowRect.Left := Max(2, mid.x - AbsLen div 2 + 1);
+  WindowRect.Top := Max(2, mid.y - Length(Tools) div 2 - 1);
+  WindowRect.Bottom := Min(ScreenHeight - 3, WindowRect.Top +  Length(Tools) + 1);
+  WindowRect.Right :=  Min(ScreenWidth - 3, mid.x + AbsLen div 2);
 
   DrawWindowBorder;
 
@@ -440,8 +604,8 @@ begin
       BGPen := Cyan;
 
     s := IntToStr(i + 1) + '    ' + Tools[i].AName;
-    s := s + Space(InnerRect.Width - 6 - Length(S));
-    SetText(InnerRect.Left + 2, InnerRect.Top + i * 2, s);
+    s := s + Space(Max(0, InnerRect.Width - AbsLen - 1));
+    SetTextA(InnerRect.Left + 2, InnerRect.Top + i, s);
   end;
   UpdateScreen(False);
 end;
@@ -452,6 +616,10 @@ begin
   AddToolsEntry('Pack selected with lha', @LhaPackEvent);
   AddToolsEntry('Pack selected with lzx', @lzxPackEvent);
   AddToolsEntry('Open file in external program', @StartProgEvent);
+  AddToolsEntry('Extract archive contents', @UnpackArchive);
+  AddToolsEntry('Find Files', @SearchStart);
+  AddToolsEntry('Select Icons of selected files', @SelectInfo);
+  AddToolsEntry('Diff Files', @DiffViewer);
 end;
 
 function TToolsMenu.Execute: TDialogResult;
@@ -591,7 +759,7 @@ begin
   FGPen := Black;
   DrawWindowBorder;
 
-  SetText(Mid.X - Length(Text) div 2, Mid.Y - 1, Text);
+  SetTextA(Mid.X - Length(Text) div 2, Mid.Y - 1, Text);
 
   PGL := WindowRect.Left + 2;
   PGR := WindowRect.Right - 2;
@@ -664,7 +832,7 @@ begin
       end;
       Text := LimitName(Text, w - 10, False);
       p := w div 2 - Length(Text) div 2 + 5;
-      SetText(p, Pup - 2, Text);
+      SetTextA(p, Pup - 2, Text);
     end;
     if Text2 <> '' then
     begin
@@ -674,13 +842,13 @@ begin
       end;
       Text2 := LimitName(Text2, w - 10, False);
       p := (PGR - 2) - Length(Text2);
-      SetText(p, Pup, Text2);
+      SetTextA(p, Pup, Text2);
     end;
     UpdateScreen(False);
   end;
   Key := PollNextKey;
   // Break on Enter -> Cancel
-  if ((Key and $FFFF) = $1C0D) or CancelPressed then
+  if ((Key and $FF) = $0D) or CancelPressed then
     Result := False;
 
 end;
@@ -708,7 +876,7 @@ begin
   FGPen := Black;
   DrawWindowBorder;
 
-  SetText(Mid.X - Length(Text) div 2, Mid.Y - 1, Text);
+  SetTextA(Mid.X - Length(Text) div 2, Mid.Y - 1, Text);
 
   PGL := WindowRect.Left + 2;
   PGR := WindowRect.Right - 2;
@@ -781,13 +949,13 @@ begin
       end;
       Text := LimitName(Text, w - 10, False);
       p := w div 2 - Length(Text) div 2;
-      SetText(p, Pup - 1, Text);
+      SetTextA(p, Pup - 1, Text);
     end;
     UpdateScreen(False);
   end;
   Key := PollNextKey;
   // Break on Enter -> Cancel
-  if ((Key and $FFFF) = $1C0D) or CancelPressed then
+  if ((Key and $FFFF) = $0D) or CancelPressed then
     Result := False;
 end;
 
@@ -795,9 +963,9 @@ end;
 
 function TAskForName.IsValidChar(c: Char): Boolean;
 begin
-  Result := c in ['a'..'z','A'..'Z','-','.','_','0'..'9',' '];
-  if not AsName and (InRange(Ord(c), 26, 126)) then
-    Result := True;
+  Result := InRange(Ord(c), 26, 126) or (c in [#$C7, #$FC, #$DC, #$E4, #$C4, #$F6, #$D6, #$DF]);
+  if AsName and Result then
+    Result := not (c in [':', '?', '#', '*', '\', '"', '''', '|', '>', '<']);
 end;
 
 function TAskForName.ValidInput(s: string): Boolean;
@@ -822,7 +990,7 @@ begin
   FGPen := Black;
   DrawWindowBorder;
 
-  SetText(Mid.X - l, Mid.Y - 1, Text);
+  SetTextA(Mid.X - l, Mid.Y - 1, Text);
 
   TxtL := WindowRect.Left + 2;
   TxtR := WindowRect.Right - 2;
@@ -836,7 +1004,7 @@ begin
 
   SetCursorType(crUnderline);
   SetCursorPos(TxtL + Length(NewName), Mid.Y);
-  SetText(TxtL, Mid.y, Newname);
+  SetTextA(TxtL, Mid.y, Newname);
 
   // draw Buttons
   FGPen := Black;
@@ -849,22 +1017,45 @@ function TAskForName.Execute: TDialogResult;
 var
   Key: TKeyEvent;
   c: Char;
-  p: LongInt;
+  p, i: LongInt;
   OldName: String;
 begin
   Paint;
   repeat
     Key := PollNextKey;
-    case (Key and $FFFF) of
-      $4B00: begin // cursor left
+    for i := 0 to High(ButtonsArray) do
+    begin
+      if ButtonsArray[i].Pressed then
+      begin
+        Result := ButtonsArray[i].Result;
+        SetCursorType(crHidden);
+        Exit;
+      end;
+    end;
+    if Key <> 0 then
+    case (TranslateKeyEvent(Key) and $FFFF) of
+      kbdLeft: begin // cursor left
         if CursorX > TxtL then
           SetCursorPos(CursorX - 1, CursorY);
       end;
-      $4D00: begin // cursor right
+      kbdRight: begin // cursor right
         if CursorX < TxtL + Length(NewName) then
           SetCursorPos(CursorX + 1, CursorY);
       end;
-      $1C0D: begin
+      kbdDelete: begin // Delete delete char
+        p := CursorX - TxtL + 1;
+        if CursorX < TxtL + Length(NewName) then
+        begin
+          Delete(NewName, p, 1);
+          BGPen := Black;
+          FGPen := LightGray;
+          SetTextA(TxtL, Mid.y, Newname);
+          SetChar(TxtL + Length(NewName), Mid.y, ' ');
+          SetCursorPos(CursorX, Mid.Y);
+          UpdateScreen(False);
+        end;
+      end;
+      $1C0D, $000D: begin
         Result := ButtonsArray[SelectedButton].Result;
         Break;
       end;
@@ -882,7 +1073,8 @@ begin
       begin
         c := GetKeyEventChar(Key);
         case c of
-          #32..#126: begin
+          #32..#252: begin
+            ConvertCharBack(c);
             if IsValidChar(c) then
             begin
               p := CursorX - TxtL;
@@ -895,7 +1087,7 @@ begin
                   NewName := OldName;
                   BGPen := Black;
                   FGPen := LightGray;
-                  SetText(TxtL, Mid.y, Newname);
+                  SetTextA(TxtL, Mid.y, Newname);
                   SetCursorPos(CursorX + 1, Mid.Y);
                   UpdateScreen(False);
                 end;
@@ -909,7 +1101,7 @@ begin
               Delete(NewName, p, 1);
               BGPen := Black;
               FGPen := LightGray;
-              SetText(TxtL, Mid.y, Newname);
+              SetTextA(TxtL, Mid.y, Newname);
               SetChar(TxtL + Length(NewName), Mid.y, ' ');
               SetCursorPos(CursorX - 1, Mid.Y);
               UpdateScreen(False);
@@ -928,12 +1120,12 @@ end;
 procedure TAskQuestion.ConfigureButtons;
 begin
   SetLength(ButtonsArray, 2);
-  ButtonsArray[0].Rect := Rect(Mid.x - 5, WindowRect.Bottom, Mid.X, WindowRect.Bottom + 1);
+  ButtonsArray[0].Rect := Rect(Mid.x - 6, WindowRect.Bottom, Mid.X - 1, WindowRect.Bottom + 1);
   ButtonsArray[0].Pressed := False;
   ButtonsArray[0].Title := 'Yes';
   ButtonsArray[0].Result := mrOK;
 
-  ButtonsArray[1].Rect := Rect(Mid.x + 3, WindowRect.Bottom, Mid.x + 7, WindowRect.Bottom + 1);
+  ButtonsArray[1].Rect := Rect(Mid.x + 2, WindowRect.Bottom, Mid.x + 6, WindowRect.Bottom + 1);
   ButtonsArray[1].Pressed := False;
   ButtonsArray[1].Title := 'No';
   ButtonsArray[1].Result := mrCancel;
@@ -1009,7 +1201,7 @@ begin
       BGPen := Cyan
     else
       BGPen := LightGray;
-    SetText(ButtonsArray[i].Rect.Left, ButtonsArray[i].Rect.Top, LBorder + ButtonsArray[i].Title + RBorder);
+    SetTextA(ButtonsArray[i].Rect.Left, ButtonsArray[i].Rect.Top, LBorder + ButtonsArray[i].Title + RBorder);
   end;
   BGPen := LightGray;
   UpdateScreen(False);
@@ -1027,10 +1219,11 @@ end;
 
 procedure TShowMessage.Paint;
 var
-  i: Integer;
+  i, j: Integer;
   SL: TStringList;
   MaxX, MaxY: Integer;
   s,s1: string;
+  DrawUp, DrawDown: Boolean;
 begin
   inherited;
   //
@@ -1049,7 +1242,7 @@ begin
       Delete(s, 1, ScreenWidth - 6);
       if Length(SL[i]) > MaxX then
         MaxX := Length(SL[i]);
-      SL.Insert(i + 1, s1);
+      SL.Insert(i + 1, s);
     end
     else
     begin
@@ -1061,20 +1254,38 @@ begin
   MaxX := MaxX + 4;
   MaxY := SL.Count + 4;
 
-  WindowRect.Left := Mid.X - MaxX div 2;
-  WindowRect.Top := Mid.Y - MaxY div 2;
-  WindowRect.Right :=  Mid.X + MaxX div 2;
-  WindowRect.Bottom := Mid.Y + MaxY div 2;
+  WindowRect.Left := Max(1, Mid.X - Ceil(MaxX / 2));
+  WindowRect.Top := Max(1, Mid.Y - Ceil(MaxY / 2));
+  WindowRect.Right :=  Min(ScreenWidth - 2, Mid.X + Floor(MaxX / 2) - 1);
+  WindowRect.Bottom := Min(ScreenHeight - 2 ,Mid.Y + Floor(MaxY / 2) - 1);
 
   BGPen := LightGray;
   FGPen := Black;
 
   DrawWindowBorder;
 
-
-  for i := 0 to SL.Count - 1 do
-    SetText(InnerRect.left + 1, InnerRect.Top + 1 + i, SL[i]);
+  j := 0;
+  WithScroll := SL.Count > InnerRect.Height - 1;
+  if WithScroll then
+  begin
+    TopLine := EnsureRange(TopLine, 0, SL.Count - (InnerRect.Height - 1));
+  end
+  else
+    TopLine := 0;
+  DrawUp := TopLine > 0;
+  DrawDown := WithScroll and (TopLine < SL.Count - (InnerRect.Height - 1));
+  for i := TopLine to SL.Count - 1 do
+  begin
+    if InnerRect.Top + 1 + j < ScreenHeight - 3 then
+      SetTextA(InnerRect.left + 1, InnerRect.Top + 1 + j, SL[i]);
+    j := j + 1;
+  end;
   SL.Free;
+
+  if DrawUp then
+    SetChar(InnerRect.Right, InnerRect.Top, ArrowUp);
+  if DrawDown then
+    SetChar(InnerRect.Right, InnerRect.Bottom, ArrowDown);
 
   // draw Buttons
   DrawButtons;
@@ -1109,6 +1320,8 @@ var
   Key: TKeyEvent;
   i: Integer;
 begin
+  WithScroll := False;
+  TopLine := 0;
   SelectedButton := 0;
   Result := mrOK;
   Paint;
@@ -1122,7 +1335,7 @@ begin
         Exit;
       end;
     end;
-    case (Key and $FFFF) of
+    case (TranslateKeyEvent(Key) and $FFFF) of
       $1C0D, $000D: begin
         Result := ButtonsArray[SelectedButton].Result;
         Break;
@@ -1131,13 +1344,21 @@ begin
         SelectedButton := (SelectedButton + 1) mod Length(ButtonsArray);
         DrawButtons;
       end;
-      $4B00, $34: begin    // cursor left
+      kbdLeft, $34: begin    // cursor left
         SelectedButton := Max(SelectedButton - 1, 0);
         DrawButtons;
       end;
-      $4D00, $36: begin    // cursor right
+      kbdRight, $36: begin    // cursor right
         SelectedButton := Min(SelectedButton + 1, High(ButtonsArray));
         DrawButtons;
+      end;
+      kbdUp, $38: begin // cursor up
+        TopLine := Max(0, TopLine - 1);
+        Paint;
+      end;
+      kbdDown, $32: begin // cursor down
+        TopLine := TopLine + 1;
+        Paint;
       end;
       $011B: begin
         Result := mrCancel;
